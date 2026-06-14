@@ -1,37 +1,48 @@
-# Why Your Agent Reads the Wrong File
+# Chapter 1 — Why Your Agent Reads the Wrong File
 
-## Learning Objectives
+You asked your agent to summarize the current product plan. It answered confidently. It sounded useful. Then you noticed: the answer was drawn from `product-plan-old.md`, not `product-plan.md`.
 
-By the end of this chapter, you should be able to:
+Nothing in the response looked broken. The model did not say it was using the wrong file. It did what agents do — it inferred from nearby files, filenames, retrieval hits, timestamps, and whatever context had already been loaded. The bad answer did not begin in the model. It began in the folder.
 
-- Explain why an agent infers file importance from structure, names, and recent context.
-- Identify three common failures: wrong canonical file, over-broad reading, and archived-vs-current confusion.
-- Diagnose whether a bad answer is a model problem or a context-structure problem.
-- Apply a small folder change that prevents the agent from using stale material.
+That is the first thing to understand about working with agents on local files: the filesystem is part of the prompt.
 
-## Opening Case
+---
 
-You ask your agent to summarize the current product plan. It answers confidently. It even sounds useful. Then you notice the problem: the answer is based on `product-plan-old.md`, not `product-plan.md`.
+Here is what actually happens when an agent starts a task involving your project. It does not enter with your mental model. It has no memory of which file is canonical, no recollection of why there are three drafts of the same document, no sense of which one you were editing last Tuesday. A human sees `draft-final.md`, `draft-final-real.md`, and `draft-final-june.md` and immediately reconstructs the story — because they lived through the story. An agent sees three plausible candidates for the same role.
 
-Nothing in the response looked broken. The model did not say, "I am using the wrong file." It did what agents often do: it inferred from nearby files, filenames, search hits, timestamps, and whatever context had already been loaded. The bad answer did not begin in the model. It began in the folder.
+The agent then does something entirely reasonable given what it has: it infers. It looks at filenames for clues. It checks paths for hierarchical signals. It considers what was retrieved by a search and what was already loaded in context. If one file was recently touched, that is a weak signal toward currency. If a filename contains "old," that is a weak signal toward irrelevance. The agent weighs these signals and chooses.
 
-This is the first rule of agentic local work: the filesystem is part of the prompt.
+The problem is that these signals are weak, and in a typical working folder, they point in several directions at once. The word "final" appears in the name of your least-final draft. The file you're actively using hasn't been touched since a long edit session last month, so its timestamp looks old. The archived file has a longer, richer document structure than the active one, so it looks more authoritative to a model that interprets length as signal.
 
-## Core Concept
+None of this is a bug. It is exactly what you would want an agent to do if you could not give it explicit instructions. The problem is that you usually can give it explicit instructions — not by writing a better prompt, but by building a better folder.
 
-An AI agent does not enter your project with your mental model. It does not know which file is canonical unless your structure tells it. A human sees `draft-final.md`, `draft-final-real.md`, and `draft-final-june.md` and remembers the story. An agent sees three plausible candidates.
+---
 
-Anthropic's context-engineering guidance treats paths, filenames, folder hierarchy, and local retrieval as part of how agents build useful context (Anthropic, "Effective context engineering for AI agents," https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents). Chroma's context-rot research adds the second half of the warning: adding more context does not monotonically improve performance. Long context and distractors can degrade reliability even before a formal window limit is reached (Chroma, "Context Rot," https://www.trychroma.com/research/context-rot).
+Let's think about what the agent is actually doing when it reads a directory. It is not doing what a file explorer does when it shows you a list of names. It is building a model of your project from everything it can observe: the names, the paths, the structure of the hierarchy, the content it has sampled, and anything it has already retrieved in this session. That model becomes the working context within which it interprets your instruction.
 
-The three recurring failures are:
+This is why Anthropic's context-engineering guidance treats paths, filenames, and folder hierarchy as part of how agents build useful context — not metadata about context, but context itself. The path `archive/2025-drafts/chapter-v2.md` carries a different semantic load than `chapter-v2.md` sitting directly in the project root, even if the file contents are identical. One path says "this is historical." The other says "this belongs here, at the top level, with everything else that matters."
 
-1. **Wrong canonical file:** the agent uses an old or secondary file as if it were source of truth.
-2. **Over-broad reading:** the agent reads too many files and loses signal in noise.
-3. **Archived-vs-current confusion:** old work sits beside active work, so the agent treats both as live.
+The implication is significant. You can communicate to an agent before you've written a single instruction file. You can communicate through the shape of the folder. And conversely, a badly shaped folder will miscommunicate to the agent before you've written anything — including your careful prompt explaining which file to use.
 
-The fix is not a louder prompt. The fix is a filesystem where current, archived, generated, and reference material live in physically different places.
+---
 
-## Worked Example
+There is a second problem layered on top of the wrong-canonical-file problem, and it operates differently. It is what Chroma's context-rot research describes: adding more context does not monotonically improve performance. There is a point past which more material in the context window makes the agent's answer worse, not better.
+
+The mechanism is competition. When an agent is holding a lot of text in context, relevant material has to compete with irrelevant material for the model's attention. This is not a failure of attention in the human sense — it is a structural property of how large language models process sequences. Information near the beginning and end of a context tends to be weighted more heavily than information in the middle. If your canonical file gets loaded into a long, cluttered context, it may be present but effectively buried.
+
+This matters for folder design because the most common response to "the agent got confused" is to add more material — more explanation, more files, a README, a manifest. Sometimes that helps. Often it makes the problem worse by giving the agent more to weigh. The better intervention is subtraction: move the material that shouldn't be in context out of reach, so the agent never loads it in the first place.
+
+The three recurring failures, stated plainly, are:
+
+**Wrong canonical file.** The agent selects an old or secondary file and treats it as source of truth. This usually happens because the canonical and non-canonical files are topically similar and live in the same folder.
+
+**Over-broad reading.** The agent reads too many files and loses signal in noise. This usually happens when a task prompt is broad enough to invite a whole-folder search, and the folder contains many plausible-looking files.
+
+**Archived-vs-current confusion.** Old work sits beside active work, so the agent treats both as live. This is the most common form of the first two failures combined, and it is almost always a folder structure problem.
+
+---
+
+Consider what a folder looks like before and after this kind of structural intervention.
 
 Before:
 
@@ -44,7 +55,7 @@ project/
   chapter-output.html
 ```
 
-The agent is asked to revise the chapter. Which file should it read? A human may know. The agent has to infer.
+The agent is asked to revise the chapter. Which file should it read? A human who built this folder knows. The agent has to infer from names alone. `chapter.md` might be the live version, or it might be an early draft that was superseded by `chapter-final.md`. `chapter-final-OLD.md` appears to be old, but "final" also appears in its name — the "OLD" suffix was applied after the fact, which the agent cannot know. `chapter-output.html` is probably generated output, but it might also contain the canonical version if someone edited it directly.
 
 After:
 
@@ -62,50 +73,46 @@ project/
       chapter-final-OLD.md
 ```
 
-Now the structure teaches the rule before any instruction file loads. `current/` is active. `archive/` is old. `outputs/` is generated. `research/` supports the work but is not the work.
+Now the structure teaches the rule before any instruction is read. `current/` is active work. `archive/` is historical. `outputs/` is generated material. `research/` is supporting context, not the work itself. An agent navigating this directory receives a clear, redundant signal about what belongs where. The signal is not in a prompt. It is in the shape of the thing.
 
-**The lesson:** a good folder structure is a prompt the agent cannot miss.
+A good folder structure is a prompt the agent cannot miss.
 
-**The limit:** structure reduces wrong-file risk; it does not enforce security or guarantee obedience. For high-risk operations, you still need gates, tests, hooks, or human review.
+---
 
-## Common Misconceptions
+There is an important qualification here. Structure reduces the risk of wrong-file selection; it does not eliminate the possibility, and it does not enforce any constraint. An agent with broad file-access permissions can still read `archive/` if it decides to. A poorly scoped task prompt can still invite whole-project retrieval. Structure is a probabilistic intervention, not a security boundary. For operations where the cost of a wrong-file error is high — overwriting production configuration, generating output that goes directly to users, modifying files that trigger downstream processes — you still need explicit gates, tests, hooks, or human review steps. The folder shape gets you most of the way toward correct behavior in ordinary cases. It does not substitute for verification in high-stakes cases.
 
-**Misconception: "The agent will read everything and figure it out."**  
-Reading everything is expensive and can make the answer worse. The context window is not a neutral bucket; irrelevant material competes with relevant material.
+This distinction matters because there is a temptation, once you understand folder structure as a communication tool, to over-rely on it. The reasoning goes: "I have a clean `current/` directory, so the agent will always use the right file." That is mostly true for most tasks. It is not a guarantee, and treating it as one creates exactly the kind of silent failure that started this chapter — the agent answered confidently, the answer sounded useful, and no one checked.
 
-**Misconception: "Bigger context windows solve this."**  
-Bigger windows help, but context rot is gradual. A huge window full of stale or similar files is still noisy.
+---
 
-**Misconception: "The filename says old, so the agent will ignore it."**  
-Maybe. But "old" in a filename is weak metadata. `archive/` is stronger.
+Three misconceptions come up often enough to address directly.
 
-## Quick Diagnosis Template
+The first is that the agent will read everything and figure it out. Reading everything is expensive, and as the context-rot research makes clear, it can make the answer worse. The context window is not a neutral bucket. Irrelevant material competes with relevant material, and a big flat folder of similar-looking files is one of the best ways to trigger that competition.
 
-```text
-Why did the agent read the wrong file?
+The second is that bigger context windows solve this. Larger windows do help at the margins — they delay the point at which the window fills entirely, and they allow more material to be held simultaneously. But context rot is gradual. A huge window full of stale or similar files is still noisy. The degradation happens earlier than the formal limit, and it happens in proportion to the density of topically similar content. Bigger windows are not a substitute for folder hygiene.
 
-[ ] Old and current drafts live in the same folder.
-[ ] Generated outputs sit beside source files.
-[ ] There is no archive/ directory.
-[ ] There is no _MANIFEST.md naming canonical files.
-[ ] The task prompt was broad enough to invite a whole-folder search.
+The third is that a filename containing "old" will cause the agent to ignore a file. Maybe. But "old" in a filename is weak metadata — it is a note left by a human for other humans, not a structured signal that agents reliably interpret as "exclude from context." `archive/` is structurally stronger because it is a path component, not a name suffix, and because path-based organization is something agents are trained to interpret as hierarchical meaning. If you need an agent to reliably ignore a file, move it out of the active directory rather than renaming it.
 
-If any box is checked, fix the structure before blaming the model.
-```
+---
 
-## Exercises
+The practical lesson is a small one, and it is worth stating plainly: before you diagnose a bad agent answer as a model problem, check whether it is a folder problem.
 
-1. Find one folder you use with an AI agent. List every file that could be mistaken for canonical.
-2. Move old drafts into an `archive/` directory and generated files into `outputs/` or `build/`.
-3. Write one sentence that tells a future agent which file is canonical.
+A quick diagnostic: find the folder you used. List every file that could plausibly be mistaken for the canonical one — not every file you know is irrelevant, but every file an agent without your context might reach for. If there are more than one or two, the structure is ambiguous. Move old drafts into `archive/`. Move generated output into `outputs/` or `build/`. Write one sentence in a `_MANIFEST.md` or `CLAUDE.md` that tells a future agent which file is canonical and why.
 
-## What Would Change My Mind
+That single sentence is often enough. Not because the agent reads it first — it may not — but because the act of writing it forces you to think about what you actually want the agent to know. The problem, more often than not, is not that you forgot to tell the agent something. It is that the folder forgot to tell it first.
 
-I would revise this chapter if controlled studies showed that modern agents reliably identify canonical files in messy folders without explicit structure, even when stale and current drafts are topically similar. Current context-rot and context-engineering evidence points the other way.
+---
 
-## Still Puzzling
+Several things I do not yet know well enough to be confident about. I do not know how much different tools weight timestamps versus path names when both are available, and whether that ratio shifts significantly across models or tool versions. I do not know which folder names are most reliably interpreted as "archive" or "active" across the range of models in common use — `archive/`, `old/`, `deprecated/`, and `legacy/` probably all carry roughly similar semantic loads, but I have not seen controlled comparisons. And I do not know whether future agents that can access IDE edit history will infer canonical status from human behavioral patterns — recent edits, cursor position, open tabs — better than from folder structure alone. If they can, the advice in this chapter will need revision. Until then, the folder is the best communication channel you have, and most working directories do not use it.
 
-- How much do different tools rely on timestamps versus path names?
-- Which folder names are most reliably interpreted across models?
-- Can future IDE agents infer canonical status from human edit history better than from folder structure?
+<!-- → [TABLE: Folder structure comparison — before/after, with column for what signal each path sends to an agent] -->
 
+---
+
+## LLM Exercises
+
+1. Paste a directory listing from one of your current projects into a conversation and ask the model: "Which file would you read first if asked to summarize this project's current state, and why?" Compare its reasoning to your own.
+
+2. Describe a real confusion an agent had with your files — wrong version used, stale content cited, irrelevant material included. Ask the model to diagnose whether the root cause was a folder structure problem, a prompt problem, or a model problem. Push back on its diagnosis.
+
+3. Ask the model to propose a folder structure for a project type you work on regularly (book chapters, code, research notes, client deliverables). Then critique its proposal: what would still confuse an agent? What signals does it fail to give?
